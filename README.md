@@ -16,6 +16,8 @@ Task 3 is complete. A deterministic file-writing tool has been implemented, test
 
 Task 4 is complete. A deterministic validation tool now checks generated Markdown for eight required sections before the file-writing tool is allowed to save it. Invalid output is rejected and the missing sections are reported.
 
+Task 5 is complete. A separate Practice Designer Agent now receives the original topic and the Explainer Agent's output, then creates a short beginner-friendly exercise with expected input, expected output and one or two hints.
+
 ## Project structure
 
 ```text
@@ -41,19 +43,20 @@ ai-agents-intro/
 └── main.py
 ```
 
-## Planned project workflow
+## Current project workflow
 
-The completed application will:
+The application currently:
 
-1. Receive a programming topic.
-2. Generate a simple explanation and key concepts.
-3. Create an example and practice exercise.
-4. Identify common mistakes.
-5. Review the generated content.
-6. Validate the required Markdown sections.
-7. Save the result in `output/study_guide.md`.
+1. Receives a programming topic.
+2. Sends the topic to the Explainer Agent.
+3. Generates a structured draft containing the required Markdown sections.
+4. Sends both the original topic and the Explainer Agent's output to the Practice Designer Agent.
+5. Generates a small beginner-friendly exercise with expected input, expected output and hints.
+6. Replaces the draft `Practice Exercise` section with the specialised agent's exercise.
+7. Validates the eight required Markdown headings.
+8. Saves valid output in `output/study_guide.md`.
 
-At the current stage, the Explainer Agent, Markdown file-writing tool and validation tool have been implemented. The Practice Designer Agent, Reviewer Agent and complete multi-agent orchestration will be added in later tasks.
+The Explainer Agent, Practice Designer Agent, validation tool and Markdown file-writing tool have now been implemented. The Reviewer Agent and the remaining project tasks will be added later.
 
 ## Model configuration
 
@@ -302,9 +305,9 @@ python main.py "HTTP status codes"
 
 Topics containing spaces should be placed inside quotation marks.
 
-The generated response is displayed in the terminal and checked by the validation tool.
+The Explainer Agent's response is passed to the Practice Designer Agent together with the original topic. The specialised exercise then replaces the draft `Practice Exercise` section.
 
-If every required heading is present, the response is saved to:
+The combined study guide is displayed in the terminal and checked by the validation tool. If every required heading is present, it is saved to:
 
 ```text
 output/study_guide.md
@@ -519,7 +522,7 @@ After the Explainer Agent returns its response, `main.py` passes the response to
 output/study_guide.md
 ```
 
-Task 3 originally connected the generated response directly to the file-writing tool. Task 4 has now inserted validation before saving:
+Task 3 originally connected the Explainer Agent directly to the file-writing tool. Tasks 4 and 5 have expanded that workflow:
 
 ```text
 Programming topic
@@ -528,7 +531,16 @@ main.py
         ↓
 Explainer Agent
         ↓
-Generated Markdown response
+Draft Markdown study guide
+        ↓
+Practice Designer Agent
+(topic + previous explanation)
+        ↓
+Specialised practice exercise
+        ↓
+replace_practice_section()
+        ↓
+Combined Markdown study guide
         ↓
 validate_required_sections()
         ↓
@@ -752,10 +764,10 @@ from tools.file_writer import save_markdown_file
 from tools.validation import validate_required_sections
 ```
 
-After receiving the agent response, it validates it:
+After both agents have run and the exercise has been inserted, `main.py` validates the combined study guide:
 
 ```python
-validation_result = validate_required_sections(response)
+validation_result = validate_required_sections(study_guide)
 ```
 
 Invalid output is reported and not saved:
@@ -779,7 +791,7 @@ print("\nValidation passed: all required sections are present.")
 
 save_result = save_markdown_file(
     str(OUTPUT_FILE),
-    response,
+    study_guide,
 )
 
 print(save_result)
@@ -835,6 +847,7 @@ Check the Python files for syntax errors:
 python -m py_compile \
     tools/validation.py \
     agents/explainer_agent.py \
+    agents/practice_designer_agent.py \
     main.py
 ```
 
@@ -890,22 +903,413 @@ The following requirements have been completed:
 * [x] Updated the agent prompts to match the validator
 * [x] Confirmed that malformed model output is detected and reported
 
+
+## Task 5: Practice Designer Agent
+
+A multi-agent system is useful when different parts of the work have different responsibilities. The Explainer Agent focuses on explaining a topic, while the Practice Designer Agent focuses only on creating a suitable exercise.
+
+This separation prevents the second agent from unnecessarily rewriting the explanation and makes the data flow between agents easier to understand.
+
+The Practice Designer Agent is defined in:
+
+```text
+agents/practice_designer_agent.py
+```
+
+The filename uses underscores to match the project structure:
+
+```text
+practice_designer_agent.py
+```
+
+The self-validation wording `practicedesigneragent.py` is treated as a typo because the main task instructions explicitly require `agents/practice_designer_agent.py`.
+
+### Practice Designer Agent implementation
+
+```python
+"""Create and configure the Practice Designer Agent."""
+
+import os
+from pathlib import Path
+
+from dotenv import load_dotenv
+from google.adk.agents import Agent
+from google.adk.models.lite_llm import LiteLlm
+
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+load_dotenv(PROJECT_ROOT / ".env")
+
+MODEL_NAME = os.getenv("MODEL_NAME")
+
+if not MODEL_NAME:
+    raise RuntimeError(
+        "MODEL_NAME is not set. Add it to the project's .env file."
+    )
+
+
+practice_designer_agent = Agent(
+    name="practice_designer_agent",
+    model=LiteLlm(model=MODEL_NAME),
+    description=(
+        "Creates short beginner-friendly programming exercises from a topic "
+        "and a previous explanation."
+    ),
+    instruction=(
+        "You are a Practice Designer Agent.\n\n"
+        "You will receive an original programming topic and an explanation "
+        "created by another agent.\n\n"
+        "Create one small, practical exercise that a beginner can complete "
+        "in 10 to 20 minutes. Base it on the supplied topic and "
+        "explanation.\n\n"
+        "Do not rewrite or summarise the full explanation. Do not create a "
+        "large application. Do not require external services.\n\n"
+        "Return only this Markdown structure:\n\n"
+        "## Practice Exercise\n"
+        "Describe one clear and concrete task.\n\n"
+        "### Expected Input\n"
+        "State the expected input, or write `Not applicable.`\n\n"
+        "### Expected Output\n"
+        "State the expected output, or write `Not applicable.`\n\n"
+        "### Hints\n"
+        "Give one or two short hints without revealing the full solution."
+    ),
+)
+```
+
+### Agent responsibility
+
+The agent has one narrow responsibility: generate a practical exercise from information that already exists.
+
+It receives two pieces of context:
+
+```text
+Original topic
+Previous explanation from the Explainer Agent
+```
+
+It returns:
+
+```markdown
+## Practice Exercise
+A short practical task.
+
+### Expected Input
+The input required by the exercise, or `Not applicable.`
+
+### Expected Output
+The expected result, or `Not applicable.`
+
+### Hints
+One or two hints.
+```
+
+The agent is explicitly told not to reproduce the full explanation. It is also told to avoid large applications and external services, because the exercise should normally be achievable by a beginner in 10 to 20 minutes.
+
+### Loading the project configuration
+
+The Practice Designer Agent loads the same project-level `.env` file as the Explainer Agent:
+
+```python
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+load_dotenv(PROJECT_ROOT / ".env")
+```
+
+Using an explicit project path makes the configuration independent of the directory from which the file is imported.
+
+The model name is read safely:
+
+```python
+MODEL_NAME = os.getenv("MODEL_NAME")
+```
+
+If it is missing, the program raises a clear error:
+
+```python
+if not MODEL_NAME:
+    raise RuntimeError(
+        "MODEL_NAME is not set. Add it to the project's .env file."
+    )
+```
+
+### Importing the Practice Designer Agent
+
+`main.py` imports the new agent:
+
+```python
+from agents.practice_designer_agent import practice_designer_agent
+```
+
+The same reusable `run_agent()` function can execute either agent because it receives the agent object, prompt and session identifier as arguments:
+
+```python
+async def run_agent(agent, prompt: str, session_id: str) -> str:
+    """Run one ADK agent and return its final text response."""
+```
+
+Separate session identifiers are used:
+
+```text
+explainer_session
+practice_designer_session
+```
+
+This keeps the two runs distinct. The information needed by the second agent is passed explicitly in its prompt rather than relying on hidden conversation history.
+
+### Passing the topic and explanation to the new agent
+
+After the Explainer Agent returns its output, `main.py` builds the second prompt:
+
+```python
+practice_prompt = f"""Original topic:
+{topic}
+
+Explanation produced by the Explainer Agent:
+{explanation}
+
+Create one short beginner-friendly practice exercise based on this topic
+and explanation.
+"""
+```
+
+The Practice Designer Agent is then executed:
+
+```python
+practice = await run_agent(
+    practice_designer_agent,
+    practice_prompt,
+    "practice_designer_session",
+)
+```
+
+This hand-off satisfies the central Task 5 requirement. The second agent receives both the original topic and the previous agent's explanation.
+
+### Replacing the draft exercise
+
+The Explainer Agent still generates the complete eight-heading structure required by the validator. Its initial `Practice Exercise` section is treated as a placeholder.
+
+The helper function in `main.py` replaces that section with the specialised agent's output:
+
+```python
+def replace_practice_section(
+    study_guide: str,
+    practice: str,
+) -> str:
+    """Replace the existing Practice Exercise section with agent output."""
+    lines = study_guide.splitlines()
+    target_heading = "## Practice Exercise"
+    start_index = None
+    end_index = len(lines)
+
+    for index, line in enumerate(lines):
+        if line.strip() == target_heading:
+            start_index = index
+            break
+
+    if start_index is None:
+        return study_guide
+
+    for index in range(start_index + 1, len(lines)):
+        if lines[index].strip().startswith("## "):
+            end_index = index
+            break
+
+    practice_lines = practice.strip().splitlines()
+
+    if (
+        practice_lines
+        and practice_lines[0].strip() == target_heading
+    ):
+        practice_lines = practice_lines[1:]
+
+    combined_lines = (
+        lines[:start_index + 1]
+        + [""]
+        + practice_lines
+        + [""]
+        + lines[end_index:]
+    )
+
+    return "\n".join(combined_lines).strip() + "\n"
+```
+
+The function first locates:
+
+```markdown
+## Practice Exercise
+```
+
+It then finds the next level-two heading, removes the content between the two headings and inserts the specialised exercise.
+
+If the Practice Designer Agent also returns its own `## Practice Exercise` heading, that duplicate heading is removed before insertion. This preserves exactly one required heading in the final document.
+
+### Complete Task 5 generation sequence
+
+The relevant part of `main.py` now follows this order:
+
+```python
+explanation = await run_agent(
+    explainer_agent,
+    explainer_prompt,
+    "explainer_session",
+)
+
+practice_prompt = f"""Original topic:
+{topic}
+
+Explanation produced by the Explainer Agent:
+{explanation}
+
+Create one short beginner-friendly practice exercise based on this topic
+and explanation.
+"""
+
+practice = await run_agent(
+    practice_designer_agent,
+    practice_prompt,
+    "practice_designer_session",
+)
+
+study_guide = replace_practice_section(
+    explanation,
+    practice,
+)
+
+validation_result = validate_required_sections(study_guide)
+```
+
+The file-writing tool receives `study_guide`, not the unmodified Explainer Agent output:
+
+```python
+save_result = save_markdown_file(
+    str(OUTPUT_FILE),
+    study_guide,
+)
+```
+
+### Checking the Python files
+
+Run all project commands from the project root:
+
+```bash
+cd ~/ai-agents-intro
+source .venv/bin/activate
+```
+
+Check the relevant files for syntax errors:
+
+```bash
+python -m py_compile \
+    agents/explainer_agent.py \
+    agents/practice_designer_agent.py \
+    tools/file_writer.py \
+    tools/validation.py \
+    main.py
+```
+
+No output means Python found no syntax errors.
+
+### Testing the multi-agent workflow
+
+Start Ollama in a separate WSL terminal:
+
+```bash
+ollama serve
+```
+
+In the project terminal, test the workflow with:
+
+```bash
+python main.py "Python list comprehensions"
+```
+
+Test another topic:
+
+```bash
+python main.py "Python dictionaries"
+```
+
+A successful run should finish with messages similar to:
+
+```text
+Validation passed: all required sections are present.
+Markdown file saved successfully: /home/aleksandre/ai-agents-intro/output/study_guide.md
+```
+
+The exact absolute path may differ between systems.
+
+### Checking the generated exercise
+
+Display the exercise and the sections following it:
+
+```bash
+grep -A 20 '^## Practice Exercise' output/study_guide.md
+```
+
+A suitable result for `Python list comprehensions` could resemble:
+
+````markdown
+## Practice Exercise
+
+Create a list called `numbers` containing the numbers from 1 to 5. Use a
+list comprehension to create another list containing their squares.
+
+### Expected Input
+
+```python
+numbers = [1, 2, 3, 4, 5]
+```
+
+### Expected Output
+
+```text
+[1, 4, 9, 16, 25]
+```
+
+### Hints
+
+* Use a `for` clause inside square brackets.
+* Multiply each number by itself or use `** 2`.
+````
+
+The exact wording may vary because the exercise is generated by the local model. The important requirements are that it is small, practical, connected to the topic and contains the requested input, output and hints.
+
+### Task 5 validation
+
+The following requirements have been implemented:
+
+* [x] Created `agents/practice_designer_agent.py`
+* [x] Gave the agent a clear and separate responsibility
+* [x] Passed the original topic to the agent
+* [x] Passed the Explainer Agent's output to the agent
+* [x] Made the agent generate a practice exercise
+* [x] Requested expected input when applicable
+* [x] Requested expected output when applicable
+* [x] Requested one or two hints
+* [x] Instructed the agent not to rewrite the full explanation
+* [x] Limited exercises to small beginner-friendly tasks
+* [x] Connected the agent to the workflow in `main.py`
+* [x] Replaced the draft exercise with the specialised agent's output
+* [x] Kept deterministic validation before file writing
+
 ## Current limitations
 
-The Explainer Agent, Markdown file-writing tool and validation tool have been implemented.
+The Explainer Agent, Practice Designer Agent, Markdown file-writing tool and validation tool have been implemented.
 
-The Practice Designer Agent, Reviewer Agent and complete multi-agent orchestration will be implemented in later tasks.
+The Reviewer Agent and the remaining project tasks have not yet been implemented.
 
-The validator checks structure only. It does not decide whether the explanation is factually correct, whether the example is useful, or whether the exercise has the right difficulty.
+The validator checks structure only. It does not determine whether the explanation is factually correct, whether the example is ideal or whether the generated exercise has exactly the right difficulty.
 
-Because `llama3.2:3b` is a small local model, its formatting may still vary between runs. It may rename headings, use `###` instead of `##`, or omit a section. The validator now catches these problems and prevents invalid output from replacing `output/study_guide.md`.
+Because `llama3.2:3b` is a small local model, wording and formatting may vary between runs. The model may occasionally rename headings, use the wrong heading level or omit requested content. The validator catches missing required level-two headings, but it does not validate the Practice Designer Agent's level-three subsections individually.
 
 The current design separates responsibilities:
 
 ```text
-AI model          → flexible content generation
-Python validator  → predictable structural checking
-File-writing tool → predictable file-system operation
+Explainer Agent          → explanation and initial structured draft
+Practice Designer Agent  → focused beginner exercise
+Python orchestration     → explicit hand-off and section replacement
+Python validator         → predictable structural checking
+File-writing tool        → predictable file-system operation
 ```
 
-This is the main lesson from Task 4: use the model for flexible language generation and deterministic Python code for rules that must be checked consistently.
+Task 5 demonstrates the main reason for using multiple agents: each agent receives only the responsibility and context it needs. Deterministic Python code still controls the workflow, combines the results, validates the final structure and saves the file.
