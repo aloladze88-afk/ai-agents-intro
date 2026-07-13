@@ -18,6 +18,8 @@ Task 4 is complete. A deterministic validation tool now checks generated Markdow
 
 Task 5 is complete. A separate Practice Designer Agent now receives the original topic and the Explainer Agent's output, then creates a short beginner-friendly exercise with expected input, expected output and one or two hints.
 
+Task 6 is complete. A Reviewer Agent now inspects the combined draft, identifies missing or unclear information, gives specific improvement suggestions and adds a short approval or revision recommendation to the final Markdown file.
+
 ## Project structure
 
 ```text
@@ -49,14 +51,17 @@ The application currently:
 
 1. Receives a programming topic.
 2. Sends the topic to the Explainer Agent.
-3. Generates a structured draft containing the required Markdown sections.
-4. Sends both the original topic and the Explainer Agent's output to the Practice Designer Agent.
+3. Generates a structured draft containing the eight required Markdown sections.
+4. Sends the original topic and the Explainer Agent's output to the Practice Designer Agent.
 5. Generates a small beginner-friendly exercise with expected input, expected output and hints.
-6. Replaces the draft `Practice Exercise` section with the specialised agent's exercise.
-7. Validates the eight required Markdown headings.
-8. Saves valid output in `output/study_guide.md`.
+6. Replaces the draft `Practice Exercise` section with the specialised exercise.
+7. Sends the combined draft to the Reviewer Agent.
+8. Generates short comments about missing information, unclear explanations and possible improvements.
+9. Replaces the `Review Comments` placeholder with the Reviewer Agent's comments.
+10. Validates the eight required Markdown headings.
+11. Saves valid output in `output/study_guide.md`.
 
-The Explainer Agent, Practice Designer Agent, validation tool and Markdown file-writing tool have now been implemented. The Reviewer Agent and the remaining project tasks will be added later.
+The Explainer Agent, Practice Designer Agent, Reviewer Agent, validation tool and Markdown file-writing tool have now been implemented. Each agent has a separate responsibility, while ordinary Python code controls the hand-offs, section replacement, validation and file writing.
 
 ## Model configuration
 
@@ -522,7 +527,7 @@ After the Explainer Agent returns its response, `main.py` passes the response to
 output/study_guide.md
 ```
 
-Task 3 originally connected the Explainer Agent directly to the file-writing tool. Tasks 4 and 5 have expanded that workflow:
+Task 3 originally connected the Explainer Agent directly to the file-writing tool. Tasks 4, 5 and 6 have expanded that workflow:
 
 ```text
 Programming topic
@@ -531,16 +536,25 @@ main.py
         ↓
 Explainer Agent
         ↓
-Draft Markdown study guide
+Structured draft study guide
         ↓
 Practice Designer Agent
-(topic + previous explanation)
+(topic + Explainer Agent output)
         ↓
 Specialised practice exercise
         ↓
-replace_practice_section()
+replace_markdown_section()
         ↓
-Combined Markdown study guide
+Draft with specialised exercise
+        ↓
+Reviewer Agent
+(topic + current draft)
+        ↓
+Short review comments
+        ↓
+replace_markdown_section()
+        ↓
+Completed study guide
         ↓
 validate_required_sections()
         ↓
@@ -1292,24 +1306,441 @@ The following requirements have been implemented:
 * [x] Replaced the draft exercise with the specialised agent's output
 * [x] Kept deterministic validation before file writing
 
+## Task 6: Reviewer Agent
+
+A generated study guide may contain all required headings while still having weak explanations, incomplete examples or unclear instructions. Task 6 adds a separate quality-control agent that examines the current draft and reports specific weaknesses.
+
+The Reviewer Agent does not create a replacement study guide. Its responsibility is limited to reviewing the existing draft and producing short, actionable comments.
+
+The Reviewer Agent is defined in:
+
+```text
+agents/reviewer_agent.py
+```
+
+### Reviewer Agent implementation
+
+```python
+"""Create and configure the Reviewer Agent."""
+
+import os
+from pathlib import Path
+
+from dotenv import load_dotenv
+from google.adk.agents import Agent
+from google.adk.models.lite_llm import LiteLlm
+
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+load_dotenv(PROJECT_ROOT / ".env")
+
+MODEL_NAME = os.getenv("MODEL_NAME")
+
+if not MODEL_NAME:
+    raise RuntimeError(
+        "MODEL_NAME is not set. Add it to the project's .env file."
+    )
+
+
+reviewer_agent = Agent(
+    name="reviewer_agent",
+    model=LiteLlm(model=MODEL_NAME),
+    description=(
+        "Reviews draft programming study guides and provides short, "
+        "actionable quality-control comments."
+    ),
+    instruction=(
+        "You are a Reviewer Agent.\n\n"
+        "You will receive an existing draft of a programming study guide.\n\n"
+        "Review the draft for clarity, completeness, structure and "
+        "usefulness for a beginner.\n\n"
+        "Identify:\n"
+        "- important information that is missing;\n"
+        "- explanations that are ambiguous or unclear;\n"
+        "- specific improvements that should be made;\n"
+        "- whether the draft should be approved or revised.\n\n"
+        "Be critical but constructive. Keep the review short and "
+        "actionable.\n\n"
+        "Do not rewrite the study guide. Do not create a replacement "
+        "explanation, example or exercise. Comment only on the existing "
+        "draft.\n\n"
+        "Avoid vague comments such as `Improve the explanation`. Give "
+        "specific comments such as `The example creates a function but "
+        "does not show how to call it`.\n\n"
+        "If a category has no meaningful problems, write "
+        "`None identified.`\n\n"
+        "Return only this Markdown structure:\n\n"
+        "## Review Comments\n\n"
+        "### Missing Information\n"
+        "List missing information or write `None identified.`\n\n"
+        "### Ambiguous or Unclear Explanations\n"
+        "List unclear points or write `None identified.`\n\n"
+        "### Suggestions for Improvement\n"
+        "Give short and specific suggestions or write "
+        "`No changes required.`\n\n"
+        "### Recommendation\n"
+        "Write a short approval or revision recommendation."
+    ),
+)
+```
+
+### Reviewer Agent responsibility
+
+The agent receives the current study-guide draft after the specialised practice exercise has been inserted. It reviews that existing content for:
+
+```text
+Missing information
+Ambiguous or unclear explanations
+Specific suggestions for improvement
+A short approval or revision recommendation
+```
+
+It returns only the following structure:
+
+```markdown
+## Review Comments
+
+### Missing Information
+Specific missing information, or `None identified.`
+
+### Ambiguous or Unclear Explanations
+Specific unclear points, or `None identified.`
+
+### Suggestions for Improvement
+Short actionable suggestions, or `No changes required.`
+
+### Recommendation
+A brief approval or revision recommendation.
+```
+
+The prompt explicitly prevents the agent from rewriting the explanation, example, exercise or complete guide. This keeps the Reviewer Agent separate from the Explainer Agent and Practice Designer Agent.
+
+### Importing the Reviewer Agent
+
+`main.py` imports the agent with:
+
+```python
+from agents.reviewer_agent import reviewer_agent
+```
+
+The existing reusable `run_agent()` function is also used for this agent. A separate session identifier keeps the run independent:
+
+```text
+reviewer_session
+```
+
+The draft itself is passed explicitly in the prompt. The Reviewer Agent therefore does not depend on hidden conversation history from the previous agents.
+
+### Creating the reviewer prompt
+
+The prompt includes the original topic and the current draft:
+
+```python
+def create_reviewer_prompt(
+    topic: str,
+    study_guide: str,
+) -> str:
+    """Create the prompt sent to the Reviewer Agent."""
+    return f"""Original topic:
+
+{topic}
+
+Current draft study guide:
+
+--- START OF DRAFT ---
+
+{study_guide}
+
+--- END OF DRAFT ---
+
+Review this existing draft for clarity, completeness, structure and usefulness
+for a beginner.
+
+The current content under `## Review Comments` is only a placeholder. Ignore
+that placeholder when reviewing the draft.
+
+Return only the requested Review Comments Markdown section. Do not rewrite the
+study guide.
+"""
+```
+
+The start and end markers make it clearer which content is the draft being reviewed. The agent is also told to ignore the temporary content under `## Review Comments`, because that content exists only to preserve the required eight-heading structure before the review is inserted.
+
+### General section-replacement helper
+
+Task 5 used a helper dedicated to the Practice Exercise section. Task 6 replaces it with a reusable helper that can update either `## Practice Exercise` or `## Review Comments`.
+
+The first helper extracts the body returned beneath the requested heading:
+
+```python
+def extract_section_body(
+    generated_content: str,
+    section_heading: str,
+) -> list[str]:
+    """Extract content beneath a generated level-two heading."""
+    lines = generated_content.strip().splitlines()
+    heading_index = None
+
+    for index, line in enumerate(lines):
+        if line.strip() == section_heading:
+            heading_index = index
+            break
+
+    if heading_index is None:
+        return lines
+
+    section_lines = []
+
+    for line in lines[heading_index + 1:]:
+        if line.strip().startswith("## "):
+            break
+
+        section_lines.append(line)
+
+    return section_lines
+```
+
+The general replacement helper locates the requested section in the study guide and replaces its current body:
+
+```python
+def replace_markdown_section(
+    document: str,
+    section_heading: str,
+    generated_content: str,
+) -> str:
+    """Replace one level-two Markdown section with generated content."""
+    lines = document.splitlines()
+    start_index = None
+    end_index = len(lines)
+
+    for index, line in enumerate(lines):
+        if line.strip() == section_heading:
+            start_index = index
+            break
+
+    if start_index is None:
+        return document
+
+    for index in range(start_index + 1, len(lines)):
+        if lines[index].strip().startswith("## "):
+            end_index = index
+            break
+
+    section_body = extract_section_body(
+        generated_content,
+        section_heading,
+    )
+
+    while section_body and not section_body[0].strip():
+        section_body.pop(0)
+
+    while section_body and not section_body[-1].strip():
+        section_body.pop()
+
+    combined_lines = (
+        lines[:start_index + 1]
+        + [""]
+        + section_body
+        + [""]
+        + lines[end_index:]
+    )
+
+    return "\n".join(combined_lines).strip() + "\n"
+```
+
+If an agent includes the requested level-two heading in its response, `extract_section_body()` removes that duplicate heading before insertion. If the agent returns only the section body, the complete response is inserted directly.
+
+### Complete Task 6 generation sequence
+
+The agents now run in this order:
+
+```python
+explanation = await run_agent(
+    explainer_agent,
+    create_explainer_prompt(topic),
+    "explainer_session",
+)
+
+practice = await run_agent(
+    practice_designer_agent,
+    create_practice_prompt(topic, explanation),
+    "practice_designer_session",
+)
+
+draft_with_practice = replace_markdown_section(
+    explanation,
+    "## Practice Exercise",
+    practice,
+)
+
+review = await run_agent(
+    reviewer_agent,
+    create_reviewer_prompt(
+        topic,
+        draft_with_practice,
+    ),
+    "reviewer_session",
+)
+
+completed_guide = replace_markdown_section(
+    draft_with_practice,
+    "## Review Comments",
+    review,
+)
+```
+
+This order matters. The Reviewer Agent receives the current draft after the Practice Designer Agent has replaced the initial exercise. It can therefore review both the explanation and the final specialised exercise.
+
+The completed guide is validated only after the review comments have been inserted:
+
+```python
+validation_result = validate_required_sections(study_guide)
+```
+
+The final Markdown file therefore contains the Reviewer Agent's comments rather than the original placeholder.
+
+### Checking the Python files
+
+Run all commands from the project root:
+
+```bash
+cd ~/ai-agents-intro
+source .venv/bin/activate
+```
+
+Check the relevant files for syntax errors:
+
+```bash
+python -m py_compile \
+    agents/explainer_agent.py \
+    agents/practice_designer_agent.py \
+    agents/reviewer_agent.py \
+    tools/file_writer.py \
+    tools/validation.py \
+    main.py
+```
+
+No output means Python found no syntax errors.
+
+### Testing the three-agent workflow
+
+Start Ollama in a separate WSL terminal:
+
+```bash
+ollama serve
+```
+
+In the project terminal, run:
+
+```bash
+python main.py "Python list comprehensions"
+```
+
+Test another topic:
+
+```bash
+python main.py "Python functions"
+```
+
+A successful run should end with messages similar to:
+
+```text
+Validation passed: all required sections are present.
+Markdown file saved successfully: /home/aleksandre/ai-agents-intro/output/study_guide.md
+```
+
+The exact absolute path may differ between systems.
+
+### Checking the generated review
+
+Display the review and the following section:
+
+```bash
+grep -A 30 '^## Review Comments' output/study_guide.md
+```
+
+A possible result could resemble:
+
+```markdown
+## Review Comments
+
+### Missing Information
+
+The guide does not explain when a normal loop may be clearer than a list
+comprehension.
+
+### Ambiguous or Unclear Explanations
+
+The phrase "more efficient" is unclear because the guide does not state
+whether it refers to readability or execution speed.
+
+### Suggestions for Improvement
+
+Clarify that a list comprehension is mainly a concise syntax and is not
+necessarily faster in every situation.
+
+### Recommendation
+
+Revision recommended before final approval.
+```
+
+The exact wording may vary because the review is generated by the local model. The important requirements are that the comments are short, specific and focused on improving the existing draft rather than replacing it.
+
+Check that the final file still contains every required level-two heading:
+
+```bash
+grep '^## ' output/study_guide.md
+```
+
+Expected result:
+
+```text
+## Topic
+## Simple Explanation
+## Key Concepts
+## Example
+## Practice Exercise
+## Common Mistakes
+## Review Comments
+## Final Summary
+```
+
+### Task 6 validation
+
+The following requirements have been implemented:
+
+* [x] Created `agents/reviewer_agent.py`
+* [x] Made the agent review an existing draft
+* [x] Made the agent identify missing information
+* [x] Made the agent identify ambiguous or unclear explanations
+* [x] Made the agent provide specific suggestions for improvement
+* [x] Made the agent provide an approval or revision recommendation
+* [x] Instructed the agent not to rewrite the complete guide
+* [x] Passed the current study-guide draft to the agent
+* [x] Ran the Reviewer Agent after the Practice Designer Agent
+* [x] Replaced the temporary `Review Comments` content
+* [x] Included the review comments in the final Markdown file
+* [x] Kept deterministic validation before file writing
+
 ## Current limitations
 
-The Explainer Agent, Practice Designer Agent, Markdown file-writing tool and validation tool have been implemented.
+The Explainer Agent, Practice Designer Agent, Reviewer Agent, Markdown file-writing tool and validation tool have been implemented.
 
-The Reviewer Agent and the remaining project tasks have not yet been implemented.
+The validator checks structure only. It does not determine whether the explanation is factually correct, whether the example is ideal, whether the exercise has exactly the right difficulty or whether every reviewer comment is justified.
 
-The validator checks structure only. It does not determine whether the explanation is factually correct, whether the example is ideal or whether the generated exercise has exactly the right difficulty.
+The Reviewer Agent improves quality control but remains a language-model component. Its comments are advisory rather than deterministic. It may overlook a weakness, report a minor issue as important or recommend a change that is unnecessary.
 
-Because `llama3.2:3b` is a small local model, wording and formatting may vary between runs. The model may occasionally rename headings, use the wrong heading level or omit requested content. The validator catches missing required level-two headings, but it does not validate the Practice Designer Agent's level-three subsections individually.
+Because `llama3.2:3b` is a small local model, wording and formatting may vary between runs. The model may occasionally rename headings, use the wrong heading level or omit requested content. The validator catches missing required level-two headings, but it does not validate the Practice Designer Agent's or Reviewer Agent's level-three subsections individually.
 
 The current design separates responsibilities:
 
 ```text
 Explainer Agent          → explanation and initial structured draft
 Practice Designer Agent  → focused beginner exercise
-Python orchestration     → explicit hand-off and section replacement
+Reviewer Agent           → short quality-control comments
+Python orchestration     → explicit hand-offs and section replacement
 Python validator         → predictable structural checking
 File-writing tool        → predictable file-system operation
 ```
 
-Task 5 demonstrates the main reason for using multiple agents: each agent receives only the responsibility and context it needs. Deterministic Python code still controls the workflow, combines the results, validates the final structure and saves the file.
+Task 6 extends the multi-agent design without allowing every agent to solve the complete task again. Each agent receives the responsibility and context it needs, while deterministic Python code controls the workflow, combines the results, validates the final structure and saves the file.
