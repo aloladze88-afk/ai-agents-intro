@@ -1,4 +1,4 @@
-"""Run the Explainer Agent and save its Markdown response."""
+"""Run the Explainer Agent, validate the response and save it."""
 
 import asyncio
 import sys
@@ -11,6 +11,7 @@ from google.genai import types
 
 from agents.explainer_agent import explainer_agent
 from tools.file_writer import save_markdown_file
+from tools.validation import validate_required_sections
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent
@@ -66,7 +67,7 @@ async def run_agent(topic: str) -> str:
 
 
 async def main() -> None:
-    """Read the topic, run the agent and save the generated output."""
+    """Run, validate and save the generated study guide."""
     if len(sys.argv) < 2:
         print('Usage: python main.py "programming topic"')
         raise SystemExit(1)
@@ -80,12 +81,26 @@ async def main() -> None:
 
     print(response)
 
+    validation_result = validate_required_sections(response)
+
+    if not validation_result["valid"]:
+        missing_sections = ", ".join(
+            validation_result["missing_sections"]
+        )
+
+        print("\nValidation failed.")
+        print(f"Missing sections: {missing_sections}")
+        print("The study guide was not saved.")
+        raise SystemExit(1)
+
+    print("\nValidation passed: all required sections are present.")
+
     save_result = save_markdown_file(
         str(OUTPUT_FILE),
         response,
     )
 
-    print(f"\n{save_result}")
+    print(save_result)
 
 
 if __name__ == "__main__":
