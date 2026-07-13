@@ -12,6 +12,8 @@ Task 1 is complete. The Python environment, dependencies, Ollama server and loca
 
 Task 2 is complete. The first agent, the Explainer Agent, has been created and tested with two programming topics.
 
+Task 3 is complete. A deterministic file-writing tool has been implemented, tested independently and connected to the Explainer Agent workflow. Generated Markdown is now saved in `output/study_guide.md`.
+
 ## Project structure
 
 ```text
@@ -49,7 +51,7 @@ The completed application will:
 6. Validate the required Markdown sections.
 7. Save the result in `output/study_guide.md`.
 
-At the current stage, only the Explainer Agent has been implemented.
+At the current stage, the Explainer Agent and the Markdown file-writing tool have been implemented.
 
 ## Model configuration
 
@@ -95,6 +97,14 @@ Install the dependencies:
 python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
 ```
+
+Project-level commands should be run from the project root:
+
+```bash
+cd ~/ai-agents-intro
+```
+
+Running commands from inside directories such as `tools/` or `agents/` can cause package import errors.
 
 ## Installing Ollama
 
@@ -281,6 +291,14 @@ python main.py "HTTP status codes"
 
 Topics containing spaces should be placed inside quotation marks.
 
+The generated response is displayed in the terminal and saved to:
+
+```text
+output/study_guide.md
+```
+
+Each run replaces the previous contents of that file with the latest generated study guide.
+
 ## Topics tested
 
 The Explainer Agent was successfully tested with:
@@ -331,11 +349,237 @@ The following requirements have been completed:
 * [x] Tested the agent with at least two topics
 * [x] Saved one example output in `README.md`
 
+## Task 3: Markdown file-writing tool
+
+Task 3 adds a deterministic tool that saves generated Markdown content to disk.
+
+The tool is defined in:
+
+```text
+tools/file_writer.py
+```
+
+It contains the following function:
+
+```python
+"""Utilities for saving generated Markdown content."""
+
+from pathlib import Path
+
+
+def save_markdown_file(file_path: str, content: str) -> str:
+    """Save Markdown content to a file and return a useful result."""
+    path = Path(file_path)
+
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content, encoding="utf-8")
+    except OSError as error:
+        return f"Could not save Markdown file: {error}"
+
+    return f"Markdown file saved successfully: {path.resolve()}"
+```
+
+### How the tool works
+
+`Path(file_path)` converts the supplied string into a `Path` object.
+
+```python
+path.parent.mkdir(parents=True, exist_ok=True)
+```
+
+This creates the parent directory when it does not already exist. The `parents=True` argument also creates missing intermediate directories, while `exist_ok=True` prevents an error when the directory already exists.
+
+```python
+path.write_text(content, encoding="utf-8")
+```
+
+This writes the Markdown content to the requested file. If the file already exists, its previous contents are replaced.
+
+The `try` and `except` block handles ordinary file-system errors gracefully and returns a clear message instead of allowing an unhandled error to terminate the program.
+
+The tool is independent from Google ADK, LiteLLM and Ollama. It can therefore be tested and reused without running an agent or language model.
+
+## Testing the file-writing tool directly
+
+The tool was tested independently before being connected to the agent workflow.
+
+Run this command from the project root:
+
+```bash
+cd ~/ai-agents-intro
+source .venv/bin/activate
+```
+
+Then run:
+
+```bash
+python - <<'PY'
+from tools.file_writer import save_markdown_file
+
+result = save_markdown_file(
+    "output/direct_test/test.md",
+    "# Direct tool test\n\nThe file-writing tool works.\n",
+)
+
+print(result)
+PY
+```
+
+Expected result:
+
+```text
+Markdown file saved successfully: /home/aleksandre/ai-agents-intro/output/direct_test/test.md
+```
+
+The exact absolute path may differ between systems.
+
+Check the generated file:
+
+```bash
+cat output/direct_test/test.md
+```
+
+Expected content:
+
+```markdown
+# Direct tool test
+
+The file-writing tool works.
+```
+
+The nested `output/direct_test/` directory is created automatically by the function.
+
+The temporary test directory can then be removed:
+
+```bash
+rm -r output/direct_test
+```
+
+## Import error encountered during direct testing
+
+The direct test initially failed with:
+
+```text
+ModuleNotFoundError: No module named 'tools'
+```
+
+The command had been run from:
+
+```text
+~/ai-agents-intro/tools
+```
+
+From inside that directory, Python could not locate `tools` as a top-level package because the project root was not on the import path.
+
+The problem was fixed by returning to the project root:
+
+```bash
+cd ~/ai-agents-intro
+```
+
+The direct test then worked correctly.
+
+Project-level commands that import packages such as:
+
+```python
+from tools.file_writer import save_markdown_file
+```
+
+should therefore be run from:
+
+```text
+~/ai-agents-intro
+```
+
+## Connecting the tool to the agent workflow
+
+`main.py` imports the tool:
+
+```python
+from tools.file_writer import save_markdown_file
+```
+
+After the Explainer Agent returns its response, `main.py` passes the response to `save_markdown_file()` and saves it in:
+
+```text
+output/study_guide.md
+```
+
+The project now follows this flow:
+
+```text
+Programming topic
+        ↓
+main.py
+        ↓
+Explainer Agent
+        ↓
+Generated Markdown response
+        ↓
+save_markdown_file()
+        ↓
+output/study_guide.md
+```
+
+## Testing the complete workflow
+
+Start Ollama in one WSL terminal:
+
+```bash
+ollama serve
+```
+
+In a second WSL terminal:
+
+```bash
+cd ~/ai-agents-intro
+source .venv/bin/activate
+python main.py "Python list comprehensions"
+```
+
+The generated explanation is printed in the terminal and saved to:
+
+```text
+output/study_guide.md
+```
+
+Verify the file:
+
+```bash
+ls -l output/study_guide.md
+cat output/study_guide.md
+```
+
+The complete workflow was also tested with:
+
+```bash
+python main.py "HTTP status codes"
+```
+
+The new response replaces the previous contents of `output/study_guide.md`, as intended.
+
+## Task 3 validation
+
+The following requirements have been completed:
+
+* [x] Created `tools/file_writer.py`
+* [x] Implemented `save_markdown_file()`
+* [x] Made the function receive a path and Markdown content
+* [x] Made the function create missing parent directories
+* [x] Made the function write Markdown content to disk
+* [x] Added basic file-writing error handling
+* [x] Kept the tool independent from the agent framework
+* [x] Tested the function without using the agent
+* [x] Connected the function to the Explainer Agent workflow
+* [x] Saved generated agent output
+* [x] Confirmed that the generated file appears in `output/`
+
 ## Current limitations
 
-Only the Explainer Agent has been implemented.
+The Explainer Agent and file-writing tool have been implemented.
 
-The Practice Designer Agent, Reviewer Agent, tools, validation workflow and final study-guide orchestration will be implemented in later tasks.
+The Practice Designer Agent, Reviewer Agent, validation tool and complete multi-agent orchestration will be implemented in later tasks.
 
 Because `llama3.2:3b` is a small local model, its formatting is not always completely consistent. For example, it may:
 
@@ -345,4 +589,6 @@ Because `llama3.2:3b` is a small local model, its formatting is not always compl
 * use `###` headings instead of the requested `##` headings;
 * include extra explanatory text after the example.
 
-The agent still returns the required explanation, key concepts and example. Later validation tasks can enforce the Markdown structure more strictly.
+The agent still returns the required explanation, key concepts and example.
+
+The file-writing tool saves the content exactly as it receives it. It does not correct or validate the generated Markdown. A later validation task will enforce the required structure more strictly.
