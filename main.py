@@ -40,9 +40,28 @@ async def run_agent(topic: str) -> str:
         session_service=session_service,
     )
 
+    prompt = (
+        f"Create a study guide about: {topic}\n\n"
+        "Use exactly these Markdown headings. Every heading must start "
+        "with exactly two hash characters:\n\n"
+        "## Topic\n"
+        "## Simple Explanation\n"
+        "## Key Concepts\n"
+        "## Example\n"
+        "## Practice Exercise\n"
+        "## Common Mistakes\n"
+        "## Review Comments\n"
+        "## Final Summary\n\n"
+        "Include content beneath every heading.\n"
+        "Do not rename any heading.\n"
+        "Do not use ### headings.\n"
+        "Do not omit any section.\n"
+        "Return Markdown only."
+    )
+
     user_message = types.Content(
         role="user",
-        parts=[types.Part(text=topic)],
+        parts=[types.Part(text=prompt)],
     )
 
     final_response = ""
