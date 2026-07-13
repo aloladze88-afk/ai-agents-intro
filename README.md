@@ -6,19 +6,23 @@ The project uses Google ADK to define and organise agents, LiteLLM to connect th
 
 ## Current status
 
-Task 0 is complete. The initial project structure and starter files have been created.
+Tasks 0 through 7 are complete.
 
-Task 1 is complete. The Python environment, dependencies, Ollama server and local model have been configured and tested.
+Task 0 created the initial project structure and starter files.
 
-Task 2 is complete. The first agent, the Explainer Agent, has been created and tested with programming topics.
+Task 1 configured and tested the Python environment, dependencies, Ollama server and local model.
 
-Task 3 is complete. A deterministic file-writing tool has been implemented, tested independently and connected to the project workflow.
+Task 2 created the Explainer Agent.
 
-Task 4 is complete. A deterministic validation tool now checks generated Markdown for eight required sections before the file-writing tool is allowed to save it. Invalid output is rejected and the missing sections are reported.
+Task 3 added a deterministic Markdown file-writing tool.
 
-Task 5 is complete. A separate Practice Designer Agent now receives the original topic and the Explainer Agent's output, then creates a short beginner-friendly exercise with expected input, expected output and one or two hints.
+Task 4 added deterministic validation of the required Markdown structure.
 
-Task 6 is complete. A Reviewer Agent now inspects the combined draft, identifies missing or unclear information, gives specific improvement suggestions and adds a short approval or revision recommendation to the final Markdown file.
+Task 5 added the Practice Designer Agent, which uses the original topic and the Explainer Agent's output.
+
+Task 6 added the Reviewer Agent, which reviews the assembled draft instead of rewriting it.
+
+Task 7 now runs the complete sequential workflow in `main.py`. The workflow assembles the final Markdown in one place, validates it, reports missing sections clearly and saves valid output to `output/study_guide.md`.
 
 ## Project structure
 
@@ -47,21 +51,59 @@ ai-agents-intro/
 
 ## Current project workflow
 
-The application currently:
+The current implementation follows this explicit sequence:
 
-1. Receives a programming topic.
-2. Sends the topic to the Explainer Agent.
-3. Generates a structured draft containing the eight required Markdown sections.
-4. Sends the original topic and the Explainer Agent's output to the Practice Designer Agent.
-5. Generates a small beginner-friendly exercise with expected input, expected output and hints.
-6. Replaces the draft `Practice Exercise` section with the specialised exercise.
-7. Sends the combined draft to the Reviewer Agent.
-8. Generates short comments about missing information, unclear explanations and possible improvements.
-9. Replaces the `Review Comments` placeholder with the Reviewer Agent's comments.
-10. Validates the eight required Markdown headings.
-11. Saves valid output in `output/study_guide.md`.
+```text
+Topic input
+    ↓
+Explainer Agent
+    ↓
+Practice Designer Agent
+    ↓
+Draft Study Guide
+    ↓
+Reviewer Agent
+    ↓
+Final Markdown Assembly
+    ↓
+Validation Tool
+    ↓
+Save Markdown Tool
+    ↓
+output/study_guide.md
+```
 
-The Explainer Agent, Practice Designer Agent, Reviewer Agent, validation tool and Markdown file-writing tool have now been implemented. Each agent has a separate responsibility, while ordinary Python code controls the hand-offs, section replacement, validation and file writing.
+`main.py` controls every hand-off. Each agent has a narrow responsibility:
+
+* The Explainer Agent creates the explanatory material.
+* The Practice Designer Agent receives the topic and explanation, then creates one beginner-friendly exercise.
+* Ordinary Python code assembles the draft.
+* The Reviewer Agent receives that assembled draft and returns review comments only.
+* Ordinary Python code assembles the final Markdown in the required order.
+* The validation tool checks the final headings.
+* The file-writing tool saves the guide only after validation succeeds.
+
+The final file uses this structure:
+
+```markdown
+# Topic
+
+## Simple Explanation
+
+## Key Concepts
+
+## Example
+
+## Practice Exercise
+
+## Common Mistakes
+
+## Review Comments
+
+## Final Summary
+```
+
+The topic is now a level-one heading. The remaining required sections are level-two headings.
 
 ## Model configuration
 
@@ -255,6 +297,8 @@ Python → LiteLLM → Ollama → llama3.2:3b
 Using `load_dotenv(".env")` is intentional. Calling `load_dotenv()` without an explicit path inside a Python heredoc caused an `AssertionError`.
 
 ## Task 2: Explainer Agent
+
+> **Current implementation note:** At Task 2, the Explainer Agent generated the complete guide structure. Task 7 narrows its role to the explanatory sections, while `main.py` now assembles the complete document deterministically.
 
 The Explainer Agent is defined in:
 
@@ -620,6 +664,8 @@ The following requirements have been completed:
 
 ## Task 4: Validation tool
 
+> **Current implementation note:** Task 4 originally required eight level-two headings, including `## Topic`. Task 7 changes the final topic heading to `# Topic` and updates the validator accordingly. The original Task 4 code below is retained as development history.
+
 Generated model output can be incomplete or poorly structured. A language model is useful for flexible generation, but ordinary Python code is more reliable for checking fixed structural rules.
 
 The validation tool does not decide whether an explanation is perfect. It checks only whether all required Markdown headings exist exactly as expected.
@@ -919,6 +965,8 @@ The following requirements have been completed:
 
 
 ## Task 5: Practice Designer Agent
+
+> **Current implementation note:** Task 5 originally inserted the exercise by replacing a placeholder section. Task 7 now extracts the specialised exercise and assembles the entire Markdown document in one place.
 
 A multi-agent system is useful when different parts of the work have different responsibilities. The Explainer Agent focuses on explaining a topic, while the Practice Designer Agent focuses only on creating a suitable exercise.
 
@@ -1307,6 +1355,8 @@ The following requirements have been implemented:
 * [x] Kept deterministic validation before file writing
 
 ## Task 6: Reviewer Agent
+
+> **Current implementation note:** Task 6 originally replaced the `Review Comments` placeholder in the draft. Task 7 now passes the assembled draft to the Reviewer Agent and then builds the final Markdown deterministically.
 
 A generated study guide may contain all required headings while still having weak explanations, incomplete examples or unclear instructions. Task 6 adds a separate quality-control agent that examines the current draft and reports specific weaknesses.
 
@@ -1722,25 +1772,931 @@ The following requirements have been implemented:
 * [x] Included the review comments in the final Markdown file
 * [x] Kept deterministic validation before file writing
 
-## Current limitations
+## Task 7: Sequential workflow
 
-The Explainer Agent, Practice Designer Agent, Reviewer Agent, Markdown file-writing tool and validation tool have been implemented.
+Task 7 connects the existing agents and deterministic tools into one readable pipeline. Each step receives the output it needs from the previous step, and `main.py` keeps agent execution separate from Markdown assembly, validation and file writing.
 
-The validator checks structure only. It does not determine whether the explanation is factually correct, whether the example is ideal, whether the exercise has exactly the right difficulty or whether every reviewer comment is justified.
-
-The Reviewer Agent improves quality control but remains a language-model component. Its comments are advisory rather than deterministic. It may overlook a weakness, report a minor issue as important or recommend a change that is unnecessary.
-
-Because `llama3.2:3b` is a small local model, wording and formatting may vary between runs. The model may occasionally rename headings, use the wrong heading level or omit requested content. The validator catches missing required level-two headings, but it does not validate the Practice Designer Agent's or Reviewer Agent's level-three subsections individually.
-
-The current design separates responsibilities:
+### Required execution order
 
 ```text
-Explainer Agent          → explanation and initial structured draft
-Practice Designer Agent  → focused beginner exercise
-Reviewer Agent           → short quality-control comments
-Python orchestration     → explicit hand-offs and section replacement
-Python validator         → predictable structural checking
-File-writing tool        → predictable file-system operation
+Topic input
+    ↓
+Explainer Agent
+    ↓
+Practice Designer Agent
+    ↓
+Draft Study Guide
+    ↓
+Reviewer Agent
+    ↓
+Final Markdown Assembly
+    ↓
+Validation Tool
+    ↓
+Save Markdown Tool
 ```
 
-Task 6 extends the multi-agent design without allowing every agent to solve the complete task again. Each agent receives the responsibility and context it needs, while deterministic Python code controls the workflow, combines the results, validates the final structure and saves the file.
+The Practice Designer Agent receives both the original topic and the Explainer Agent's output. The Reviewer Agent receives the assembled draft, including the specialised exercise. The final Markdown is built only after the review has been generated.
+
+### Final Markdown structure
+
+The generated file must contain these exact headings:
+
+```markdown
+# Topic
+
+## Simple Explanation
+
+## Key Concepts
+
+## Example
+
+## Practice Exercise
+
+## Common Mistakes
+
+## Review Comments
+
+## Final Summary
+```
+
+`# Topic` is intentionally a level-one heading. The remaining required sections use level-two headings.
+
+### Complete `main.py`
+
+```python
+"""Run the sequential AI study-guide workflow."""
+
+import asyncio
+import re
+import sys
+from pathlib import Path
+from typing import Any
+
+from google.adk.runners import Runner
+from google.adk.sessions import InMemorySessionService
+from google.genai import types
+
+from agents.explainer_agent import explainer_agent
+from agents.practice_designer_agent import practice_designer_agent
+from agents.reviewer_agent import reviewer_agent
+from tools.file_writer import save_markdown_file
+from tools.validation import validate_required_sections
+
+
+PROJECT_ROOT = Path(__file__).resolve().parent
+OUTPUT_FILE = PROJECT_ROOT / "output" / "study_guide.md"
+
+APP_NAME = "ai_study_guide_generator"
+USER_ID = "student"
+
+
+def get_topic_from_user() -> str:
+    """Return a topic from command-line arguments or interactive input."""
+    if len(sys.argv) > 1:
+        topic = " ".join(sys.argv[1:]).strip()
+    else:
+        topic = input("Enter a programming topic: ").strip()
+
+    if not topic:
+        raise ValueError("A programming topic is required.")
+
+    return topic
+
+
+async def run_agent(
+    agent: Any,
+    prompt: str,
+    session_id: str,
+) -> str:
+    """Run one ADK agent and return its final text response."""
+    session_service = InMemorySessionService()
+
+    await session_service.create_session(
+        app_name=APP_NAME,
+        user_id=USER_ID,
+        session_id=session_id,
+    )
+
+    runner = Runner(
+        agent=agent,
+        app_name=APP_NAME,
+        session_service=session_service,
+    )
+
+    message = types.Content(
+        role="user",
+        parts=[types.Part(text=prompt)],
+    )
+
+    final_response = ""
+
+    async for event in runner.run_async(
+        user_id=USER_ID,
+        session_id=session_id,
+        new_message=message,
+    ):
+        if not event.is_final_response():
+            continue
+
+        if not event.content or not event.content.parts:
+            continue
+
+        response_parts = []
+
+        for part in event.content.parts:
+            text = getattr(part, "text", None)
+
+            if text:
+                response_parts.append(text)
+
+        final_response = "".join(response_parts).strip()
+
+    if not final_response:
+        raise RuntimeError(
+            f"{agent.name} did not return a final text response."
+        )
+
+    return final_response
+
+
+def create_explainer_prompt(topic: str) -> str:
+    """Create the prompt sent to the Explainer Agent."""
+    return f"""Explain this programming topic for a beginner:
+
+{topic}
+
+Return these exact Markdown sections:
+
+## Simple Explanation
+
+Give a short and clear beginner-friendly explanation.
+
+## Key Concepts
+
+Describe the most important concepts.
+
+## Example
+
+Give one small practical example. Close every Markdown code block with
+three backticks.
+
+## Common Mistakes
+
+Describe common beginner mistakes.
+
+## Final Summary
+
+Give a short summary of the topic.
+
+Do not generate the Practice Exercise or Review Comments sections. Other
+agents are responsible for those sections.
+"""
+
+
+def create_practice_prompt(
+    topic: str,
+    explanation: str,
+) -> str:
+    """Create the prompt sent to the Practice Designer Agent."""
+    return f"""Original topic:
+
+{topic}
+
+Explanation produced by the Explainer Agent:
+
+--- START OF EXPLANATION ---
+
+{explanation}
+
+--- END OF EXPLANATION ---
+
+Create one small beginner-friendly practice exercise based on the topic and
+the explanation.
+
+Return only this Markdown structure:
+
+## Practice Exercise
+
+Describe one clear and practical exercise.
+
+### Expected Input
+
+State the expected input, or write `Not applicable.`
+
+### Expected Output
+
+State the expected output, or write `Not applicable.`
+
+### Hints
+
+Give one or two short hints.
+
+Close every Markdown code block with three backticks.
+
+Do not rewrite the explanation.
+"""
+
+
+def create_reviewer_prompt(
+    topic: str,
+    draft: str,
+) -> str:
+    """Create the prompt sent to the Reviewer Agent."""
+    return f"""Original topic:
+
+{topic}
+
+Current draft study guide:
+
+--- START OF DRAFT ---
+
+{draft}
+
+--- END OF DRAFT ---
+
+Review the existing draft for clarity, completeness, structure and usefulness
+for a beginner.
+
+The current Review Comments content is only a placeholder. Ignore it while
+reviewing.
+
+Return only this Markdown structure:
+
+## Review Comments
+
+### Missing Information
+
+Identify important missing information, or write `None identified.`
+
+### Ambiguous or Unclear Explanations
+
+Identify unclear explanations, or write `None identified.`
+
+### Suggestions for Improvement
+
+Give short and specific suggestions, or write `No changes required.`
+
+### Recommendation
+
+Give a short approval or revision recommendation.
+
+Do not rewrite the study guide.
+"""
+
+
+def find_markdown_headings(
+    lines: list[str],
+) -> list[tuple[int, int, str]]:
+    """Return Markdown headings outside fenced code blocks."""
+    headings = []
+    active_fence = None
+
+    for index, line in enumerate(lines):
+        stripped_line = line.strip()
+
+        if stripped_line.startswith("```"):
+            if active_fence == "```":
+                active_fence = None
+            elif active_fence is None:
+                active_fence = "```"
+
+            continue
+
+        if stripped_line.startswith("~~~"):
+            if active_fence == "~~~":
+                active_fence = None
+            elif active_fence is None:
+                active_fence = "~~~"
+
+            continue
+
+        if active_fence is not None:
+            continue
+
+        match = re.match(
+            r"^(#{1,6})\s+(.+?)\s*$",
+            stripped_line,
+        )
+
+        if match:
+            level = len(match.group(1))
+            title = match.group(2).strip()
+
+            headings.append(
+                (
+                    index,
+                    level,
+                    title,
+                )
+            )
+
+    return headings
+
+
+def extract_named_section(
+    markdown: str,
+    section_name: str,
+) -> str:
+    """Extract a named Markdown section regardless of heading level."""
+    lines = markdown.strip().splitlines()
+    headings = find_markdown_headings(lines)
+
+    for position, heading in enumerate(headings):
+        start_index, start_level, title = heading
+
+        if title.casefold() != section_name.casefold():
+            continue
+
+        end_index = len(lines)
+
+        for next_heading in headings[position + 1:]:
+            next_index, next_level, _ = next_heading
+
+            if next_level <= start_level:
+                end_index = next_index
+                break
+
+        return "\n".join(
+            lines[start_index + 1:end_index]
+        ).strip()
+
+    return ""
+
+
+def close_unmatched_code_fence(content: str) -> str:
+    """Close an unmatched Markdown code fence in generated content."""
+    lines = content.strip().splitlines()
+    active_fence = None
+
+    for line in lines:
+        stripped_line = line.strip()
+
+        if stripped_line.startswith("```"):
+            if active_fence == "```":
+                active_fence = None
+            elif active_fence is None:
+                active_fence = "```"
+
+        elif stripped_line.startswith("~~~"):
+            if active_fence == "~~~":
+                active_fence = None
+            elif active_fence is None:
+                active_fence = "~~~"
+
+    cleaned_content = "\n".join(lines).strip()
+
+    if active_fence is not None:
+        cleaned_content = (
+            f"{cleaned_content}\n{active_fence}"
+        )
+
+    return cleaned_content
+
+
+def get_agent_section(
+    generated_content: str,
+    section_name: str,
+) -> str:
+    """Extract an agent section or use its complete response."""
+    section_body = extract_named_section(
+        generated_content,
+        section_name,
+    )
+
+    if not section_body:
+        section_body = generated_content.strip()
+
+    return close_unmatched_code_fence(section_body)
+
+
+def add_section(
+    document_parts: list[str],
+    heading: str,
+    body: str,
+    fallback: str,
+) -> None:
+    """Append one required Markdown section."""
+    cleaned_body = close_unmatched_code_fence(
+        body.strip()
+    )
+
+    if not cleaned_body:
+        cleaned_body = fallback
+
+    document_parts.extend(
+        [
+            heading,
+            "",
+            cleaned_body,
+            "",
+        ]
+    )
+
+
+def assemble_markdown(
+    topic: str,
+    explanation: str,
+    practice: str,
+    review: str | None = None,
+) -> str:
+    """Assemble the draft or final Markdown study guide."""
+    simple_explanation = extract_named_section(
+        explanation,
+        "Simple Explanation",
+    )
+
+    key_concepts = extract_named_section(
+        explanation,
+        "Key Concepts",
+    )
+
+    example = extract_named_section(
+        explanation,
+        "Example",
+    )
+
+    common_mistakes = extract_named_section(
+        explanation,
+        "Common Mistakes",
+    )
+
+    final_summary = extract_named_section(
+        explanation,
+        "Final Summary",
+    )
+
+    practice_body = get_agent_section(
+        practice,
+        "Practice Exercise",
+    )
+
+    if review is None:
+        review_body = (
+            "The Reviewer Agent has not reviewed the draft yet."
+        )
+    else:
+        review_body = get_agent_section(
+            review,
+            "Review Comments",
+        )
+
+    document_parts = [
+        "# Topic",
+        "",
+        topic,
+        "",
+    ]
+
+    add_section(
+        document_parts,
+        "## Simple Explanation",
+        simple_explanation,
+        "No simple explanation was generated.",
+    )
+
+    add_section(
+        document_parts,
+        "## Key Concepts",
+        key_concepts,
+        "No key concepts were generated.",
+    )
+
+    add_section(
+        document_parts,
+        "## Example",
+        example,
+        "No example was generated.",
+    )
+
+    add_section(
+        document_parts,
+        "## Practice Exercise",
+        practice_body,
+        "No practice exercise was generated.",
+    )
+
+    add_section(
+        document_parts,
+        "## Common Mistakes",
+        common_mistakes,
+        "No common mistakes were generated.",
+    )
+
+    add_section(
+        document_parts,
+        "## Review Comments",
+        review_body,
+        "No review comments were generated.",
+    )
+
+    add_section(
+        document_parts,
+        "## Final Summary",
+        final_summary,
+        "No final summary was generated.",
+    )
+
+    return "\n".join(document_parts).strip() + "\n"
+
+
+async def run_workflow(topic: str) -> int:
+    """Run the complete sequential study-guide workflow."""
+    print(f"Topic: {topic}")
+
+    print("\n[1/7] Running Explainer Agent...")
+
+    explanation = await run_agent(
+        explainer_agent,
+        create_explainer_prompt(topic),
+        "explainer_session",
+    )
+
+    print("Explainer Agent completed.")
+
+    print("\n[2/7] Running Practice Designer Agent...")
+
+    practice = await run_agent(
+        practice_designer_agent,
+        create_practice_prompt(
+            topic,
+            explanation,
+        ),
+        "practice_designer_session",
+    )
+
+    print("Practice Designer Agent completed.")
+
+    print("\n[3/7] Assembling the draft study guide...")
+
+    draft = assemble_markdown(
+        topic=topic,
+        explanation=explanation,
+        practice=practice,
+    )
+
+    print("Draft study guide assembled.")
+
+    print("\n[4/7] Running Reviewer Agent...")
+
+    review = await run_agent(
+        reviewer_agent,
+        create_reviewer_prompt(
+            topic,
+            draft,
+        ),
+        "reviewer_session",
+    )
+
+    print("Reviewer Agent completed.")
+
+    print("\n[5/7] Assembling the final Markdown...")
+
+    final_markdown = assemble_markdown(
+        topic=topic,
+        explanation=explanation,
+        practice=practice,
+        review=review,
+    )
+
+    print("Final Markdown assembled.")
+
+    print("\n[6/7] Validating required sections...")
+
+    validation_result = validate_required_sections(
+        final_markdown
+    )
+
+    if not validation_result["valid"]:
+        print("Validation failed.")
+        print("Missing sections:")
+
+        for section in validation_result["missing_sections"]:
+            print(f"- {section}")
+
+        print("\nGenerated Markdown for debugging:")
+        print("--------------------------------")
+        print(final_markdown)
+        print("--------------------------------")
+        print("The Markdown file was not saved.")
+
+        return 1
+
+    print(
+        "Validation passed: all required sections are present."
+    )
+
+    print("\n[7/7] Saving the Markdown file...")
+
+    save_result = save_markdown_file(
+        str(OUTPUT_FILE),
+        final_markdown,
+    )
+
+    print(save_result)
+
+    if save_result.startswith(
+        "Could not save Markdown file:"
+    ):
+        return 1
+
+    print("\nWorkflow completed successfully.")
+    print(f"Final file: {OUTPUT_FILE}")
+
+    return 0
+
+
+def main() -> None:
+    """Read the topic and run the asynchronous workflow."""
+    try:
+        topic = get_topic_from_user()
+        exit_code = asyncio.run(
+            run_workflow(topic)
+        )
+    except (ValueError, RuntimeError) as error:
+        print(f"Error: {error}")
+        exit_code = 1
+    except KeyboardInterrupt:
+        print("\nWorkflow cancelled.")
+        exit_code = 130
+
+    raise SystemExit(exit_code)
+
+
+if __name__ == "__main__":
+    main()
+
+```
+
+### Updated validation tool
+
+Task 7 updates the validator because the final document now uses `# Topic` rather than `## Topic`. The validator also ignores apparent headings inside fenced code blocks.
+
+Replace `tools/validation.py` with:
+
+```python
+"""Utilities for validating generated Markdown study guides."""
+
+
+REQUIRED_HEADINGS = [
+    "# Topic",
+    "## Simple Explanation",
+    "## Key Concepts",
+    "## Example",
+    "## Practice Exercise",
+    "## Common Mistakes",
+    "## Review Comments",
+    "## Final Summary",
+]
+
+
+def validate_required_sections(markdown: str) -> dict:
+    """Check whether Markdown contains every required heading."""
+    headings = set()
+    active_fence = None
+
+    for line in markdown.splitlines():
+        stripped_line = line.strip()
+
+        if stripped_line.startswith("```"):
+            if active_fence == "```":
+                active_fence = None
+            else:
+                active_fence = "```"
+
+            continue
+
+        if stripped_line.startswith("~~~"):
+            if active_fence == "~~~":
+                active_fence = None
+            else:
+                active_fence = "~~~"
+
+            continue
+
+        if (
+            active_fence is None
+            and stripped_line.startswith("#")
+        ):
+            headings.add(stripped_line)
+
+    missing_sections = [
+        heading
+        for heading in REQUIRED_HEADINGS
+        if heading not in headings
+    ]
+
+    return {
+        "valid": not missing_sections,
+        "missing_sections": missing_sections,
+    }
+
+```
+
+### Why Markdown is assembled in ordinary Python
+
+The agents generate flexible content, but they are not trusted to control the final document structure. `assemble_markdown()` creates every required heading in a fixed order. This makes the workflow easier to inspect and prevents an agent from accidentally omitting, renaming or reordering the final sections.
+
+The Explainer Agent provides content for:
+
+```text
+Simple Explanation
+Key Concepts
+Example
+Common Mistakes
+Final Summary
+```
+
+The Practice Designer Agent provides:
+
+```text
+Practice Exercise
+```
+
+The Reviewer Agent provides:
+
+```text
+Review Comments
+```
+
+`main.py` then combines those results.
+
+### Progress messages
+
+The workflow prints one message for each stage:
+
+```text
+[1/7] Running Explainer Agent...
+[2/7] Running Practice Designer Agent...
+[3/7] Assembling the draft study guide...
+[4/7] Running Reviewer Agent...
+[5/7] Assembling the final Markdown...
+[6/7] Validating required sections...
+[7/7] Saving the Markdown file...
+```
+
+These messages make the execution order visible and make failures easier to locate.
+
+### Validation failure encountered
+
+The first Task 7 run reached validation but reported:
+
+```text
+Validation failed.
+Missing sections:
+- ## Practice Exercise
+- ## Common Mistakes
+- ## Review Comments
+- ## Final Summary
+The Markdown file was not saved.
+```
+
+All three agents had completed, so the failure was not caused by an agent failing to run. The pattern indicated that generated Markdown probably contained an unclosed fenced code block in or before the `Example` section. A Markdown parser then treated later headings as code rather than document headings.
+
+The final `main.py` therefore includes:
+
+```python
+def close_unmatched_code_fence(content: str) -> str:
+```
+
+This function detects an unmatched triple-backtick or triple-tilde fence and closes it before the next assembled section is added. The prompts also explicitly tell the agents to close every Markdown code block.
+
+The validator remains strict: headings inside a genuine fenced code block do not count as required document sections.
+
+### Checking the Python files
+
+Run commands from the project root:
+
+```bash
+cd ~/ai-agents-intro
+source .venv/bin/activate
+```
+
+Check the complete project for syntax errors:
+
+```bash
+python -m py_compile \
+    agents/explainer_agent.py \
+    agents/practice_designer_agent.py \
+    agents/reviewer_agent.py \
+    tools/file_writer.py \
+    tools/validation.py \
+    main.py
+```
+
+No output means Python found no syntax errors.
+
+### Running the complete workflow
+
+Start Ollama in a separate WSL terminal:
+
+```bash
+ollama serve
+```
+
+In the project terminal, run:
+
+```bash
+python main.py "Python list comprehensions"
+```
+
+The topic can also be entered interactively:
+
+```bash
+python main.py
+```
+
+Expected prompt:
+
+```text
+Enter a programming topic:
+```
+
+### Expected successful result
+
+A successful run should end with output similar to:
+
+```text
+[6/7] Validating required sections...
+Validation passed: all required sections are present.
+
+[7/7] Saving the Markdown file...
+Markdown file saved successfully: /home/aleksandre/ai-agents-intro/output/study_guide.md
+
+Workflow completed successfully.
+Final file: /home/aleksandre/ai-agents-intro/output/study_guide.md
+```
+
+The exact absolute path may differ between systems.
+
+### Inspecting the generated file
+
+Display the file:
+
+```bash
+cat output/study_guide.md
+```
+
+Display every Markdown heading:
+
+```bash
+grep '^#' output/study_guide.md
+```
+
+Expected required headings:
+
+```text
+# Topic
+## Simple Explanation
+## Key Concepts
+## Example
+## Practice Exercise
+## Common Mistakes
+## Review Comments
+## Final Summary
+```
+
+Additional level-three headings such as `### Expected Input`, `### Hints` or `### Recommendation` may also appear.
+
+### Task 7 validation
+
+The following requirements have been implemented:
+
+* [x] `main.py` runs the complete workflow.
+* [x] The topic is received from a command-line argument or interactive input.
+* [x] The Explainer Agent runs first.
+* [x] The Practice Designer Agent receives the topic and Explainer Agent output.
+* [x] Python assembles a draft study guide.
+* [x] The Reviewer Agent receives and reviews the assembled draft.
+* [x] Python assembles the final Markdown in one place.
+* [x] The final Markdown contains all required headings.
+* [x] The validation tool runs before the file is saved.
+* [x] Missing headings are reported individually.
+* [x] Invalid Markdown is not saved.
+* [x] Valid Markdown is saved to `output/study_guide.md`.
+* [x] Useful progress messages show the execution order.
+* [x] Unmatched generated code fences are repaired before final assembly.
+
+## Current limitations
+
+The validator checks document structure, not factual accuracy or teaching quality. It confirms that the required headings exist outside fenced code blocks, but it cannot prove that each explanation is correct, complete or appropriate for every learner.
+
+The Reviewer Agent adds a quality-control step, but its comments are still generated by a language model. It may miss a problem, overstate a minor weakness or recommend an unnecessary change.
+
+The local `llama3.2:3b` model may vary between runs. It can produce different wording, malformed Markdown or incomplete content. The deterministic assembly logic protects the required final structure, closes unmatched code fences and uses fallback text when a section body is missing, but it does not automatically repair every possible content-quality problem.
+
+Fallback text keeps the final document structurally valid, but a structurally valid guide may still require human revision. The workflow deliberately reports reviewer comments rather than attempting to rewrite every criticised section automatically.
+
+The final responsibility split is:
+
+```text
+Explainer Agent          → explanatory content
+Practice Designer Agent  → beginner-friendly exercise
+Reviewer Agent           → quality-control comments
+Python orchestration     → explicit sequential hand-offs
+Markdown assembly        → fixed final structure and order
+Validation tool          → deterministic heading checks
+File-writing tool        → deterministic file-system operation
+```
+
+Task 7 completes the sequential orchestration requirement while keeping agent generation, deterministic validation and file writing as separate responsibilities.
