@@ -6,7 +6,7 @@ The project uses Google ADK to define and organise agents, LiteLLM to connect th
 
 ## Current status
 
-Tasks 0 through 7 are complete.
+Tasks 0 through 8 are complete.
 
 Task 0 created the initial project structure and starter files.
 
@@ -22,7 +22,9 @@ Task 5 added the Practice Designer Agent, which uses the original topic and the 
 
 Task 6 added the Reviewer Agent, which reviews the assembled draft instead of rewriting it.
 
-Task 7 now runs the complete sequential workflow in `main.py`. The workflow assembles the final Markdown in one place, validates it, reports missing sections clearly and saves valid output to `output/study_guide.md`.
+Task 7 runs the complete sequential workflow in `main.py`. The workflow assembles the final Markdown in one place, validates it, reports missing sections clearly and saves valid output to `output/study_guide.md`.
+
+Task 8 adds centralised configuration, empty-input checks, an Ollama preflight check, model-availability checks, explicit file-writing errors, clear validation-failure reporting and troubleshooting instructions.
 
 ## Project structure
 
@@ -36,6 +38,7 @@ ai-agents-intro/
 ├── tools/
 │   ├── __init__.py
 │   ├── file_writer.py
+│   ├── ollama.py
 │   └── validation.py
 ├── output/
 │   └── study_guide.md
@@ -43,6 +46,7 @@ ai-agents-intro/
 │   └── topic_examples.json
 ├── .env
 ├── .env.example
+├── config.py
 ├── .gitignore
 ├── requirements.txt
 ├── README.md
@@ -54,7 +58,11 @@ ai-agents-intro/
 The current implementation follows this explicit sequence:
 
 ```text
-Topic input
+Topic input and empty-input check
+    ↓
+Configuration validation
+    ↓
+Ollama server and model preflight check
     ↓
 Explainer Agent
     ↓
@@ -110,10 +118,13 @@ The topic is now a level-one heading. The remaining required sections are level-
 The project currently uses:
 
 * Model provider: Ollama
+* Provider setting: `MODEL_PROVIDER=ollama`
 * Model connector: LiteLLM
 * Local model: `llama3.2:3b`
 * LiteLLM model name: `ollama_chat/llama3.2:3b`
 * Ollama server: `http://localhost:11434`
+
+`config.py` loads and validates these values before any agent is created. The current project intentionally supports Ollama only. Adding another provider would require adding provider-specific validation and connection settings rather than merely changing the provider name.
 
 The model runs locally and does not require an external API key.
 
@@ -229,9 +240,12 @@ cp .env.example .env
 Both `.env.example` and the local `.env` use:
 
 ```env
-OLLAMA_API_BASE=http://localhost:11434
+MODEL_PROVIDER=ollama
 MODEL_NAME=ollama_chat/llama3.2:3b
+OLLAMA_API_BASE=http://localhost:11434
 ```
+
+`MODEL_PROVIDER` selects the supported provider. `MODEL_NAME` is the LiteLLM model identifier and must keep an Ollama prefix such as `ollama_chat/`. `OLLAMA_API_BASE` is the address of the local Ollama server.
 
 The real `.env` file must not be committed because it may contain private configuration.
 
@@ -2677,11 +2691,389 @@ The following requirements have been implemented:
 * [x] Useful progress messages show the execution order.
 * [x] Unmatched generated code fences are repaired before final assembly.
 
+
+## Task 8: Basic error handling and configuration
+
+Task 8 handles common expected failures before or during the workflow without replacing every exception with an unhelpful generic message.
+
+The project now checks:
+
+* whether the topic is empty;
+* whether required environment variables are present and valid;
+* whether the Ollama server is reachable;
+* whether the configured Ollama model is installed;
+* whether the final Markdown contains every required heading;
+* whether the generated file can be written successfully.
+
+Unexpected programming errors are not caught by a blanket `except Exception` block. They still produce their normal traceback during development.
+
+### New configuration module
+
+The new file is:
+
+```text
+config.py
+```
+
+It loads the project-level `.env` file, validates the model provider, checks the LiteLLM model prefix and validates the Ollama URL. It returns one immutable `Settings` object used by `main.py`.
+
+Required variables:
+
+```env
+MODEL_PROVIDER=ollama
+MODEL_NAME=ollama_chat/llama3.2:3b
+OLLAMA_API_BASE=http://localhost:11434
+```
+
+When a value is missing, the program reports the exact variable names and explains that `.env.example` should be copied to `.env`.
+
+Example:
+
+```text
+Configuration error: Missing required environment variable(s): MODEL_NAME. Copy `.env.example` to `.env` and fill in the required values.
+```
+
+### Ollama preflight tool
+
+The new file is:
+
+```text
+tools/ollama.py
+```
+
+Before any agent runs, it requests:
+
+```text
+http://localhost:11434/api/tags
+```
+
+This confirms both that the server is reachable and that the configured local model exists.
+
+When Ollama is not running, the program reports:
+
+```text
+Ollama connection error: Could not connect to Ollama at http://localhost:11434: ... Start it with `ollama serve`.
+```
+
+When Ollama is running but the model is absent, the program reports:
+
+```text
+Model error: Ollama is running, but model "llama3.2:3b" is not available.
+Install it with: ollama pull llama3.2:3b
+Available models: ...
+```
+
+### Empty topic handling
+
+Input is checked before configuration or agent execution.
+
+```bash
+python main.py "   "
+```
+
+Expected result:
+
+```text
+Input error: Topic cannot be empty. Example: `python main.py "Python list comprehensions"`.
+```
+
+The interactive form is also checked:
+
+```bash
+python main.py
+```
+
+Pressing Enter without a topic produces the same clear input error.
+
+### File-writing errors
+
+`tools/file_writer.py` now raises a specific `FileWriteError` while preserving the original `OSError` as its cause.
+
+`main.py` handles this expected error and reports the attempted path plus the operating-system message:
+
+```text
+File-writing error: Could not save Markdown file to `...`: ...
+Check the output path, directory permissions and available disk space.
+```
+
+The file writer still creates missing parent directories automatically and returns the absolute path after a successful write.
+
+### Validation failures
+
+Validation still happens before file writing. When headings are missing, the program prints each missing heading, displays the generated Markdown for debugging and explicitly states that the file was not saved.
+
+Example:
+
+```text
+Validation failed: the final Markdown is missing required headings.
+Missing headings:
+- ## Review Comments
+- ## Final Summary
+...
+The Markdown file was not saved.
+```
+
+### New execution order
+
+The progress messages now expose all nine stages:
+
+```text
+[1/9] Checking configuration...
+[2/9] Checking Ollama server and model...
+[3/9] Running Explainer Agent...
+[4/9] Running Practice Designer Agent...
+[5/9] Assembling the draft study guide...
+[6/9] Running Reviewer Agent...
+[7/9] Assembling the final Markdown...
+[8/9] Validating required sections...
+[9/9] Saving the Markdown file...
+```
+
+### Replacing the project files
+
+Task 8 adds or replaces these complete files:
+
+```text
+config.py
+main.py
+agents/explainer_agent.py
+agents/practice_designer_agent.py
+agents/reviewer_agent.py
+tools/file_writer.py
+tools/ollama.py
+tools/validation.py
+.env.example
+.gitignore
+```
+
+The agent modules now expose factory functions instead of reading environment variables at import time:
+
+```python
+create_explainer_agent(model_name)
+create_practice_designer_agent(model_name)
+create_reviewer_agent(model_name)
+```
+
+This matters because `main.py` can validate configuration and Ollama first. An invalid `.env` no longer causes an obscure import-time failure before the program can print a useful message.
+
+### Checking syntax
+
+Run this from the project root:
+
+```bash
+python -m py_compile \
+    config.py \
+    main.py \
+    agents/explainer_agent.py \
+    agents/practice_designer_agent.py \
+    agents/reviewer_agent.py \
+    tools/file_writer.py \
+    tools/ollama.py \
+    tools/validation.py
+```
+
+No output means Python found no syntax errors.
+
+### Testing the successful workflow
+
+Start Ollama in a separate WSL terminal:
+
+```bash
+ollama serve
+```
+
+In the project terminal:
+
+```bash
+cd ~/ai-agents-intro
+source .venv/bin/activate
+python main.py "Python list comprehensions"
+```
+
+A successful run should reach:
+
+```text
+Validation passed: all required sections are present.
+Markdown file saved successfully: .../output/study_guide.md
+Workflow completed successfully.
+```
+
+## Troubleshooting
+
+### `Configuration error: Missing required environment variable(s)`
+
+Create the local configuration file:
+
+```bash
+cp .env.example .env
+```
+
+Then confirm that `.env` contains:
+
+```env
+MODEL_PROVIDER=ollama
+MODEL_NAME=ollama_chat/llama3.2:3b
+OLLAMA_API_BASE=http://localhost:11434
+```
+
+Do not commit `.env`. Confirm that Git ignores it:
+
+```bash
+git check-ignore .env
+```
+
+Expected output:
+
+```text
+.env
+```
+
+### `Unsupported MODEL_PROVIDER`
+
+The current project supports:
+
+```env
+MODEL_PROVIDER=ollama
+```
+
+Changing it to another provider is not enough by itself. The project would also need provider-specific environment variables and a corresponding preflight check.
+
+### `MODEL_NAME must use a LiteLLM Ollama prefix`
+
+Use a complete LiteLLM model identifier:
+
+```env
+MODEL_NAME=ollama_chat/llama3.2:3b
+```
+
+Do not use only:
+
+```env
+MODEL_NAME=llama3.2:3b
+```
+
+### `Could not connect to Ollama`
+
+Start the server in a separate terminal:
+
+```bash
+ollama serve
+```
+
+Keep that terminal open. Test the server directly:
+
+```bash
+curl http://localhost:11434/api/tags
+```
+
+If `.env` uses another host or port, confirm that `OLLAMA_API_BASE` matches the real server address.
+
+### `Model ... is not available`
+
+Install the configured model:
+
+```bash
+ollama pull llama3.2:3b
+```
+
+Then verify it:
+
+```bash
+ollama list
+ollama show llama3.2:3b
+```
+
+The name after the LiteLLM prefix in `MODEL_NAME` must match an installed Ollama model.
+
+### `Topic cannot be empty`
+
+Pass a non-empty topic:
+
+```bash
+python main.py "Python dictionaries"
+```
+
+Topics containing spaces should be enclosed in quotation marks.
+
+### `File-writing error`
+
+Check:
+
+* that the project directory is writable;
+* that `output/` is not owned by another user;
+* that enough disk space is available;
+* that `output/study_guide.md` is not being blocked by unusual permissions.
+
+Inspect permissions with:
+
+```bash
+ls -ld . output
+ls -l output/study_guide.md
+```
+
+A normal repair for a user-owned project is:
+
+```bash
+mkdir -p output
+chmod u+rwx output
+```
+
+Do not use broad permissions such as `chmod 777` as a routine fix.
+
+### `Validation failed`
+
+Read the listed missing headings and the generated Markdown printed below them. The invalid document is deliberately not saved.
+
+Confirm that `tools/validation.py` requires:
+
+```text
+# Topic
+## Simple Explanation
+## Key Concepts
+## Example
+## Practice Exercise
+## Common Mistakes
+## Review Comments
+## Final Summary
+```
+
+Also check for an unclosed Markdown code fence before a missing heading. `main.py` repairs ordinary unmatched triple-backtick and triple-tilde fences, but malformed generated Markdown may still require inspection.
+
+### `ModuleNotFoundError` for `agents`, `tools` or `config`
+
+Run project commands from the project root:
+
+```bash
+cd ~/ai-agents-intro
+source .venv/bin/activate
+```
+
+Do not run package-level tests from inside `agents/` or `tools/`.
+
+### Task 8 validation
+
+The following requirements have been implemented:
+
+* [x] The project checks for empty topic input.
+* [x] The project validates required environment variables.
+* [x] The project explains how to configure the model provider.
+* [x] The project checks whether Ollama is running.
+* [x] The project checks whether the configured model is installed.
+* [x] The project handles file-writing errors with a specific exception.
+* [x] The project reports validation failures and missing headings clearly.
+* [x] Invalid Markdown is not saved.
+* [x] The README contains troubleshooting notes and failure examples.
+* [x] `.env.example` contains only safe example configuration.
+* [x] `.env` remains excluded through `.gitignore`.
+* [x] The project does not expose secrets.
+
 ## Current limitations
 
 The validator checks document structure, not factual accuracy or teaching quality. It confirms that the required headings exist outside fenced code blocks, but it cannot prove that each explanation is correct, complete or appropriate for every learner.
 
 The Reviewer Agent adds a quality-control step, but its comments are still generated by a language model. It may miss a problem, overstate a minor weakness or recommend an unnecessary change.
+
+The preflight check confirms that Ollama and the selected model are available before generation starts. Ollama can still stop after that check, in which case the underlying agent exception remains visible for debugging.
 
 The local `llama3.2:3b` model may vary between runs. It can produce different wording, malformed Markdown or incomplete content. The deterministic assembly logic protects the required final structure, closes unmatched code fences and uses fallback text when a section body is missing, but it does not automatically repair every possible content-quality problem.
 
@@ -2690,13 +3082,15 @@ Fallback text keeps the final document structurally valid, but a structurally va
 The final responsibility split is:
 
 ```text
-Explainer Agent          → explanatory content
-Practice Designer Agent  → beginner-friendly exercise
-Reviewer Agent           → quality-control comments
-Python orchestration     → explicit sequential hand-offs
-Markdown assembly        → fixed final structure and order
-Validation tool          → deterministic heading checks
-File-writing tool        → deterministic file-system operation
+Configuration module    → environment validation
+Ollama preflight tool     → server and model availability checks
+Explainer Agent           → explanatory content
+Practice Designer Agent   → beginner-friendly exercise
+Reviewer Agent            → quality-control comments
+Python orchestration      → explicit sequential hand-offs
+Markdown assembly         → fixed final structure and order
+Validation tool           → deterministic heading checks
+File-writing tool         → deterministic file-system operation
 ```
 
-Task 7 completes the sequential orchestration requirement while keeping agent generation, deterministic validation and file writing as separate responsibilities.
+Task 8 adds clear handling for expected input, configuration, Ollama, model, validation and file-system failures without hiding unexpected development errors.

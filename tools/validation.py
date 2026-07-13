@@ -1,5 +1,7 @@
 """Utilities for validating generated Markdown study guides."""
 
+from typing import TypedDict
+
 
 REQUIRED_HEADINGS = [
     "# Topic",
@@ -13,7 +15,14 @@ REQUIRED_HEADINGS = [
 ]
 
 
-def validate_required_sections(markdown: str) -> dict:
+class ValidationResult(TypedDict):
+    """Result returned by the deterministic Markdown validator."""
+
+    valid: bool
+    missing_sections: list[str]
+
+
+def validate_required_sections(markdown: str) -> ValidationResult:
     """Check whether Markdown contains every required heading."""
     headings = set()
     active_fence = None
@@ -24,7 +33,7 @@ def validate_required_sections(markdown: str) -> dict:
         if stripped_line.startswith("```"):
             if active_fence == "```":
                 active_fence = None
-            else:
+            elif active_fence is None:
                 active_fence = "```"
 
             continue
@@ -32,7 +41,7 @@ def validate_required_sections(markdown: str) -> dict:
         if stripped_line.startswith("~~~"):
             if active_fence == "~~~":
                 active_fence = None
-            else:
+            elif active_fence is None:
                 active_fence = "~~~"
 
             continue

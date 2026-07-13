@@ -1,56 +1,29 @@
 """Create and configure the Explainer Agent."""
 
-import os
-from pathlib import Path
-
-from dotenv import load_dotenv
 from google.adk.agents import Agent
 from google.adk.models.lite_llm import LiteLlm
 
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-load_dotenv(PROJECT_ROOT / ".env")
+def create_explainer_agent(model_name: str) -> Agent:
+    """Return an Explainer Agent configured with the selected model."""
+    if not model_name.strip():
+        raise ValueError("The Explainer Agent requires a model name.")
 
-MODEL_NAME = os.getenv("MODEL_NAME")
-
-if not MODEL_NAME:
-    raise RuntimeError(
-        "MODEL_NAME is missing from the project's .env file."
+    return Agent(
+        name="explainer_agent",
+        model=LiteLlm(model=model_name),
+        description=(
+            "Explains programming topics clearly for beginner students."
+        ),
+        instruction=(
+            "You are an Explainer Agent.\n\n"
+            "Explain the supplied programming topic clearly for a beginner. "
+            "Focus only on explanation, key concepts, a small example, "
+            "common mistakes and a final summary.\n\n"
+            "Do not create a practice exercise or review comments because "
+            "other agents handle those sections.\n\n"
+            "Use the exact Markdown headings requested in the user's "
+            "prompt. Keep examples small and close every Markdown code "
+            "block with three backticks."
+        ),
     )
-
-
-explainer_agent = Agent(
-    name="explainer_agent",
-    model=LiteLlm(model=MODEL_NAME),
-    description=(
-        "Creates structured programming study guides for beginners."
-    ),
-    instruction=(
-        "Create a beginner-friendly Markdown study guide for the "
-        "programming topic supplied by the user.\n\n"
-        "You must copy the following structure exactly.\n"
-        "Replace only the instructional text beneath each heading.\n"
-        "Do not rename, remove or reorder any heading.\n"
-        "Every heading must begin with exactly two hash characters.\n"
-        "Never use three hash characters.\n"
-        "Return Markdown only.\n\n"
-        "## Topic\n"
-        "Repeat the programming topic supplied by the user.\n\n"
-        "## Simple Explanation\n"
-        "Explain the topic in two to four short sentences.\n\n"
-        "## Key Concepts\n"
-        "Give three to five bullet points.\n\n"
-        "## Example\n"
-        "Provide one simple example with a short code block when useful.\n\n"
-        "## Practice Exercise\n"
-        "Give one small exercise for the learner to complete.\n\n"
-        "## Common Mistakes\n"
-        "Describe two or three common beginner mistakes.\n\n"
-        "## Review Comments\n"
-        "Briefly review the clarity and consistency of the guide.\n\n"
-        "## Final Summary\n"
-        "Summarise the main lesson in a short paragraph.\n\n"
-        "Before responding, verify that the response contains exactly "
-        "these eight headings and that every heading starts with ##."
-    ),
-)

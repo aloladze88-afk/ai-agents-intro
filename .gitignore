@@ -1,23 +1,12 @@
-# Environment variables and secrets
+# Local environment and secrets
 .env
 
-# Python virtual environments
+# Python virtual environment
 .venv/
-venv/
 
-# Python-generated files
+# Python cache files
 __pycache__/
 *.py[cod]
 
-# Testing and coverage
-.pytest_cache/
-.coverage
-htmlcov/
-
-# Editors
-.vscode/
-.idea/
-
-# Operating-system files
-.DS_Store
-Thumbs.db
+# Generated output
+output/study_guide.md

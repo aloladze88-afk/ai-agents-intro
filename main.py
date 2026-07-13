@@ -10,10 +10,18 @@ from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
 from google.genai import types
 
-from agents.explainer_agent import explainer_agent
-from agents.practice_designer_agent import practice_designer_agent
-from agents.reviewer_agent import reviewer_agent
-from tools.file_writer import save_markdown_file
+from agents.explainer_agent import create_explainer_agent
+from agents.practice_designer_agent import (
+    create_practice_designer_agent,
+)
+from agents.reviewer_agent import create_reviewer_agent
+from config import ConfigurationError, Settings, load_settings
+from tools.file_writer import FileWriteError, save_markdown_file
+from tools.ollama import (
+    ModelNotAvailableError,
+    OllamaConnectionError,
+    check_ollama,
+)
 from tools.validation import validate_required_sections
 
 
@@ -29,12 +37,44 @@ def get_topic_from_user() -> str:
     if len(sys.argv) > 1:
         topic = " ".join(sys.argv[1:]).strip()
     else:
-        topic = input("Enter a programming topic: ").strip()
+        try:
+            topic = input("Enter a programming topic: ").strip()
+        except EOFError as error:
+            raise ValueError(
+                "Topic cannot be empty. Pass a topic as a command-line "
+                "argument or enter one at the prompt."
+            ) from error
 
     if not topic:
-        raise ValueError("A programming topic is required.")
+        raise ValueError(
+            "Topic cannot be empty. Example: "
+            '`python main.py "Python list comprehensions"`.'
+        )
 
     return topic
+
+
+def run_preflight_checks() -> Settings:
+    """Validate configuration and confirm Ollama is ready."""
+    print("[1/9] Checking configuration...")
+    settings = load_settings()
+    print(
+        "Configuration loaded: "
+        f"provider={settings.model_provider}, "
+        f"model={settings.model_name}"
+    )
+
+    print("\n[2/9] Checking Ollama server and model...")
+    check_ollama(
+        ollama_api_base=settings.ollama_api_base,
+        required_model=settings.ollama_model_name,
+    )
+    print(
+        "Ollama is available and model "
+        f"`{settings.ollama_model_name}` is installed."
+    )
+
+    return settings
 
 
 async def run_agent(
@@ -253,14 +293,11 @@ def find_markdown_headings(
         )
 
         if match:
-            level = len(match.group(1))
-            title = match.group(2).strip()
-
             headings.append(
                 (
                     index,
-                    level,
-                    title,
+                    len(match.group(1)),
+                    match.group(2).strip(),
                 )
             )
 
@@ -320,9 +357,7 @@ def close_unmatched_code_fence(content: str) -> str:
     cleaned_content = "\n".join(lines).strip()
 
     if active_fence is not None:
-        cleaned_content = (
-            f"{cleaned_content}\n{active_fence}"
-        )
+        cleaned_content = f"{cleaned_content}\n{active_fence}"
 
     return cleaned_content
 
@@ -350,9 +385,7 @@ def add_section(
     fallback: str,
 ) -> None:
     """Append one required Markdown section."""
-    cleaned_body = close_unmatched_code_fence(
-        body.strip()
-    )
+    cleaned_body = close_unmatched_code_fence(body.strip())
 
     if not cleaned_body:
         cleaned_body = fallback
@@ -378,27 +411,22 @@ def assemble_markdown(
         explanation,
         "Simple Explanation",
     )
-
     key_concepts = extract_named_section(
         explanation,
         "Key Concepts",
     )
-
     example = extract_named_section(
         explanation,
         "Example",
     )
-
     common_mistakes = extract_named_section(
         explanation,
         "Common Mistakes",
     )
-
     final_summary = extract_named_section(
         explanation,
         "Final Summary",
     )
-
     practice_body = get_agent_section(
         practice,
         "Practice Exercise",
@@ -427,42 +455,36 @@ def assemble_markdown(
         simple_explanation,
         "No simple explanation was generated.",
     )
-
     add_section(
         document_parts,
         "## Key Concepts",
         key_concepts,
         "No key concepts were generated.",
     )
-
     add_section(
         document_parts,
         "## Example",
         example,
         "No example was generated.",
     )
-
     add_section(
         document_parts,
         "## Practice Exercise",
         practice_body,
         "No practice exercise was generated.",
     )
-
     add_section(
         document_parts,
         "## Common Mistakes",
         common_mistakes,
         "No common mistakes were generated.",
     )
-
     add_section(
         document_parts,
         "## Review Comments",
         review_body,
         "No review comments were generated.",
     )
-
     add_section(
         document_parts,
         "## Final Summary",
@@ -473,121 +495,140 @@ def assemble_markdown(
     return "\n".join(document_parts).strip() + "\n"
 
 
-async def run_workflow(topic: str) -> int:
+def report_validation_failure(
+    final_markdown: str,
+    missing_sections: list[str],
+) -> None:
+    """Print a detailed validation failure without saving the file."""
+    print(
+        "Validation failed: the final Markdown is missing required "
+        "headings."
+    )
+    print("Missing headings:")
+
+    for section in missing_sections:
+        print(f"- {section}")
+
+    print("\nGenerated Markdown for debugging:")
+    print("--------------------------------")
+    print(final_markdown)
+    print("--------------------------------")
+    print("The Markdown file was not saved.")
+
+
+async def run_workflow(
+    topic: str,
+    settings: Settings,
+) -> int:
     """Run the complete sequential study-guide workflow."""
-    print(f"Topic: {topic}")
+    explainer_agent = create_explainer_agent(
+        settings.model_name
+    )
+    practice_designer_agent = create_practice_designer_agent(
+        settings.model_name
+    )
+    reviewer_agent = create_reviewer_agent(
+        settings.model_name
+    )
 
-    print("\n[1/7] Running Explainer Agent...")
+    print(f"\nTopic: {topic}")
 
+    print("\n[3/9] Running Explainer Agent...")
     explanation = await run_agent(
         explainer_agent,
         create_explainer_prompt(topic),
         "explainer_session",
     )
-
     print("Explainer Agent completed.")
 
-    print("\n[2/7] Running Practice Designer Agent...")
-
+    print("\n[4/9] Running Practice Designer Agent...")
     practice = await run_agent(
         practice_designer_agent,
-        create_practice_prompt(
-            topic,
-            explanation,
-        ),
+        create_practice_prompt(topic, explanation),
         "practice_designer_session",
     )
-
     print("Practice Designer Agent completed.")
 
-    print("\n[3/7] Assembling the draft study guide...")
-
+    print("\n[5/9] Assembling the draft study guide...")
     draft = assemble_markdown(
         topic=topic,
         explanation=explanation,
         practice=practice,
     )
-
     print("Draft study guide assembled.")
 
-    print("\n[4/7] Running Reviewer Agent...")
-
+    print("\n[6/9] Running Reviewer Agent...")
     review = await run_agent(
         reviewer_agent,
-        create_reviewer_prompt(
-            topic,
-            draft,
-        ),
+        create_reviewer_prompt(topic, draft),
         "reviewer_session",
     )
-
     print("Reviewer Agent completed.")
 
-    print("\n[5/7] Assembling the final Markdown...")
-
+    print("\n[7/9] Assembling the final Markdown...")
     final_markdown = assemble_markdown(
         topic=topic,
         explanation=explanation,
         practice=practice,
         review=review,
     )
-
     print("Final Markdown assembled.")
 
-    print("\n[6/7] Validating required sections...")
-
+    print("\n[8/9] Validating required sections...")
     validation_result = validate_required_sections(
         final_markdown
     )
 
     if not validation_result["valid"]:
-        print("Validation failed.")
-        print("Missing sections:")
-
-        for section in validation_result["missing_sections"]:
-            print(f"- {section}")
-
-        print("\nGenerated Markdown for debugging:")
-        print("--------------------------------")
-        print(final_markdown)
-        print("--------------------------------")
-        print("The Markdown file was not saved.")
-
+        report_validation_failure(
+            final_markdown,
+            validation_result["missing_sections"],
+        )
         return 1
 
     print(
         "Validation passed: all required sections are present."
     )
 
-    print("\n[7/7] Saving the Markdown file...")
-
-    save_result = save_markdown_file(
-        str(OUTPUT_FILE),
+    print("\n[9/9] Saving the Markdown file...")
+    saved_path = save_markdown_file(
+        OUTPUT_FILE,
         final_markdown,
     )
-
-    print(save_result)
-
-    if save_result.startswith(
-        "Could not save Markdown file:"
-    ):
-        return 1
+    print(f"Markdown file saved successfully: {saved_path}")
 
     print("\nWorkflow completed successfully.")
-    print(f"Final file: {OUTPUT_FILE}")
+    print(f"Final file: {saved_path}")
 
     return 0
 
 
 def main() -> None:
-    """Read the topic and run the asynchronous workflow."""
+    """Read input, run preflight checks and start the workflow."""
     try:
         topic = get_topic_from_user()
+        settings = run_preflight_checks()
         exit_code = asyncio.run(
-            run_workflow(topic)
+            run_workflow(topic, settings)
         )
-    except (ValueError, RuntimeError) as error:
-        print(f"Error: {error}")
+    except ValueError as error:
+        print(f"Input error: {error}")
+        exit_code = 1
+    except ConfigurationError as error:
+        print(f"Configuration error: {error}")
+        exit_code = 1
+    except OllamaConnectionError as error:
+        print(f"Ollama connection error: {error}")
+        exit_code = 1
+    except ModelNotAvailableError as error:
+        print(f"Model error: {error}")
+        exit_code = 1
+    except FileWriteError as error:
+        print(f"File-writing error: {error}")
+        print(
+            "Check the output path, directory permissions and available "
+            "disk space."
+        )
         exit_code = 1
     except KeyboardInterrupt:
         print("\nWorkflow cancelled.")
